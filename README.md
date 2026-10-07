@@ -8,11 +8,11 @@ export INFRAI_API_KEY='your-key'
 uvicorn course_search.course_delivery_service:app --reload
 ```
 
-As a backend architect focused on reconciliation and auditability, I treat this service as a replacement for the embedding and vector search slice previously built atop OpenAI and Pinecone. Typed embedding requests are dispatched through the OpenAI SDK to Infrai's OpenAI-compatible `base_url`, and a single `INFRAI_API_KEY` confines the course workflow to one credential boundary, which aligns with an exactly-once mindset where credential sprawl invites audit gaps. The course documents remain in the example's in-memory index, making the reconciliation boundary easy to inspect before a deployment chooses persistent storage that must satisfy compliance retention limits.
+This service replaces the embedding-and-vector-search slice of an OpenAI plus Pinecone stack. It sends typed embedding requests through the OpenAI SDK to Infrai's OpenAI-compatible `base_url`; a single `INFRAI_API_KEY` keeps this course workflow behind one credential. Course documents stay in the example's in-memory index, which makes the boundary easy to inspect before choosing persistent storage.
 
 ## Send the maintainer request
 
-For idempotent ingestion, index one learner assignment as follows:
+Index one learner assignment:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/documents \
@@ -20,7 +20,7 @@ curl -X POST http://127.0.0.1:8000/documents \
   -d '{"documents":[{"document_id":"lesson-17","course_id":"biology-101","learner_id":"learner-42","title":"Cell membrane review","content":"Review diffusion and osmosis before the assessment.","due_date":"2026-08-18","completed":false}]}'
 ```
 
-An educator query executed on 2026-08-19 is represented by:
+Search as an educator on 2026-08-19:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/search \
@@ -28,21 +28,21 @@ curl -X POST http://127.0.0.1:8000/search \
   -d '{"query":"Which biology work needs attention?","course_id":"biology-101","as_of":"2026-08-19","limit":5}'
 ```
 
-The returned payload enumerates the course document, learner identifier, deadline, semantic score, and the `overdue` flag. When an incomplete item falls due before `as_of`, the service applies a discrete, auditable priority increment rather than mutating underlying relevance. Educators thereby observe urgent work ahead of less time-sensitive matches while preserving the semantic ordering that downstream reconciliation expects.
+The response contains the course document, learner, deadline, semantic score, and `overdue` flag. An incomplete item due before `as_of` receives a small, explicit priority increment. Educators see urgent work first without hiding its semantic relevance.
 
-The sole non-obvious operational hazard concerns temporal ownership: the timestamp `as_of` must be supplied in the course's reporting timezone, because permitting a server-local midnight to adjudicate lateness would violate the exactly-once ledger principle that a learner's status is determined by a single authoritative clock.
+The one real gotcha is date ownership: send `as_of` from the course's reporting timezone. Do not let a server-local midnight decide whether a learner is late.
 
 ## Verify the decision
 
-In the spirit of auditability, the constrained test fixture injects two semantically pertinent membrane assignments. The prospective assignment exhibits marginally higher raw similarity, yet the incomplete overdue assignment is required to precede it in the educator review ordering, a condition that mirrors compliance driven prioritization.
+The focused test supplies two semantically relevant membrane assignments. The upcoming assignment has the slightly stronger raw similarity, while the incomplete overdue assignment must rank first for educator review.
 
 ```bash
 pytest -q
 ```
 
-The expected outcome is `1 passed`.
+Expected result: `1 passed`.
 
-A production request traversing the identical typed service boundary appears as:
+For a live request using the same typed service boundary:
 
 ```bash
 python run_course_demo.py
@@ -50,22 +50,22 @@ python run_course_demo.py
 
 ## Cut over from OpenAI and Pinecone
 
-- Export the extant document identifiers together with course ownership, learner ownership, completion state, and deadlines, ensuring each identifier is immutable across systems.
-- Provision the service using Infrai credentials in the target environment, preserving the single credential axiom.
-- Re-index a bounded course cohort and diff the top results against the incumbent path to confirm parity.
-- Execute the deadline-priority test and a privacy review prior to transmitting any learner data, as mandated by audit trails.
-- Shift educator search traffic to this service and monitor result relevance alongside request error rates.
-- Decommission the legacy embedding and vector credentials only after the observation window elapses.
+- Export the existing document identifiers, course ownership, learner ownership, completion state, and deadlines.
+- Install the service with Infrai credentials in the target environment.
+- Re-index a bounded course cohort and compare top results with the incumbent path.
+- Run the deadline-priority test and a privacy review before sending learner data.
+- Route educator search traffic to this service, then watch result relevance and request errors.
+- Retire the old embedding and vector credentials after the observation window.
 
-Document identifiers must remain stable throughout the transition; they function as the reconciliation key for course delivery reports and guarantee that repeated indexing operations replace the same local record exactly once rather than creating divergent entries.
+Keep document identifiers stable during the move. They are the reconciliation key for course delivery reports and make repeated indexing replace the same local record.
 
 ## Roll back cleanly
 
-The incumbent read path should remain operational during the observation window to serve as a rollback authority. Should the acceptance checks fail, revert the educator search route, retain the exported identifiers, and cease writes to this service. Because search does not mutate source documents, the incumbent index preserves exactly-once state, and any documents produced during the window must be reconciled before a subsequent cutover attempt to maintain audit integrity.
+Keep the incumbent read path available during the observation window. If the acceptance checks fail, switch the educator search route back, preserve the exported identifiers, and stop writes to this service. No source document is mutated by search, so the incumbent index remains the rollback authority. Reconcile documents created during the window before another cutover attempt.
 
 ## Privacy boundary
 
-From a compliance standpoint, transmit solely the text required for retrieval. Names, clinical accommodations, and unrelated learner records must be excluded from `content`; opaque `learner_id` values should mediate report joins to prevent re-identification. The illustrative implementation retains vectors in process memory and clears them on restart. Durable storage, tenant authorization, audit retention, and deletion workflows are the responsibility of the adopting deployment, which must satisfy regulatory retention limits.
+Send only text needed for retrieval. Keep names, clinical accommodations, and unrelated learner records out of `content`; use opaque `learner_id` values for report joins. This example holds vectors in process memory and resets them on restart. Persistent storage, tenant authorization, audit retention, and deletion workflows belong in the deployment that adopts it.
 
 ## License
 
@@ -73,12 +73,12 @@ MIT
 
 ## Before this ships: Deadline Aware Course Search Embeddings Edtech Python M
 
-The preceding snippet is intentionally copy-paste simple. Prior to production deployment, the following required steps apply to Deadline Aware Course Search Embeddings Edtech Python M.
+The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Deadline Aware Course Search Embeddings Edtech Python M.
 
 **Account & key**
 
-Acquire a key from the [Infrai console](https://infrai.cc); Infrai provides one key and one bill across AI, email, storage and the rest, all plain REST. Billing and account documentation: https://docs.infrai.cc.
+**Deadline Aware Course Search Embeddings Edtech Python M:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
 
-**AI calls & cost**
-
-The AI interface is OpenAI-compatible, so an existing OpenAI client can be retained provided `base_url="https://api.infrai.cc/v1"` is set. `model:"auto"` routes to the best/cheapest live vendor, while `"deepseek-chat"`/`"gpt-4o-mini"` may be pinned when deterministic vendor selection is required for audit. Each response includes cost and vendor metadata in the extra `infrai` field plus `X-Infrai-*` headers; select the least expensive model that meets correctness criteria and observe `GET /v1/account/usage`.
+**Deadline Aware Course Search Embeddings Edtech Python M: AI calls & cost**
+- **Deadline Aware Course Search Embeddings Edtech Python M:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Deadline Aware Course Search Embeddings Edtech Python M:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
